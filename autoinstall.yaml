@@ -1,0 +1,47 @@
+#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: ubuntu
+    username: thomas
+    password: "$6$rounds=4096$V0KIC9R2b$9nOc1EZ9X3i6...qgH7J"  # Versleuteld wachtwoord
+  locale: nl_NL.UTF-8
+  timezone: Europe/Amsterdam
+  keyboard:
+    layout: nl
+    variant: ""
+  storage:
+    layout:
+      name: lvm  # Automatische indeling met LVM
+  packages:
+    - flatpak
+    - qemu-kvm
+    - qemu-utils
+    - virt-manager
+    - libvirt-daemon-system
+    - libvirt-clients
+    - bridge-utils
+
+  user-data:
+    runcmd:
+      # Post-installatie acties
+      - apt update && apt upgrade -y
+      - systemctl enable --now docker
+      - groupadd libvirt
+      - usermod -aG docker,libvirt thomas
+      - flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      - flatpak install -y flathub com.mattjakeman.ExtensionManager
+      - flatpak install -y com.google.Chrome
+      - gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+      - gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
+      - gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true
+      - gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed false
+      - gsettings set org.gnome.shell.extensions.dash-to-dock favorite-apps "['google-chrome.desktop']"
+      - snap refresh
+  late-commands:
+    # Docker rootless mode configuratie
+    - curtin in-target --target=/target -- sh -c "sudo -u thomas dockerd-rootless-setuptool.sh install"
+    # Virt-manager wachtwoordvrij instellen
+    - curtin in-target --target=/target -- sh -c "echo 'auth sufficient pam_permit.so' > /etc/pam.d/libvirt-sasl"
+
+# Einde autoinstall.yaml
