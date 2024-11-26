@@ -2,46 +2,102 @@
 autoinstall:
   version: 1
   identity:
-    hostname: ubuntu
-    username: thomas
-    password: "$6$rounds=4096$V0KIC9R2b$9nOc1EZ9X3i6...qgH7J"  # Versleuteld wachtwoord
-  locale: nl_NL.UTF-8
-  timezone: Europe/Amsterdam
+    hostname: "ubuntu"
+    username: "thomas"
+    password: "$6$rounds=4096$abcdefghijklmnopqrstuvw$XYZ12345..."
+  locale: "nl_NL.UTF-8"
+  timezone: "Europe/Amsterdam"
   keyboard:
-    layout: nl
-    variant: ""
+    layout: "nl"
+  ssh:
+    install-server: false
+
   storage:
     layout:
-      name: lvm  # Automatische indeling met LVM
+      name: direct
+    config:
+      - id: disk0
+        serial: DISK_SERIAL
+        path: /dev/nvme0n1
+        type: disk
+        wipe: superblock-recursive
+        ptable: gpt
+        grub_device: true
+      - id: disk0-boot
+        type: partition
+        number: 1
+        size: 512M
+        device: disk0
+        flag: boot
+      - id: disk0-root
+        type: partition
+        number: 2
+        size: -1
+        device: disk0
+      - id: format-boot
+        type: format
+        fstype: fat32
+        volume: disk0-boot
+      - id: format-root
+        type: format
+        fstype: ext4
+        volume: disk0-root
+      - id: mount-boot
+        type: mount
+        path: /boot/efi
+        device: format-boot
+      - id: mount-root
+        type: mount
+        path: /
+        device: format-root
   packages:
+    - docker.io
     - flatpak
     - qemu-kvm
-    - qemu-utils
-    - virt-manager
     - libvirt-daemon-system
     - libvirt-clients
     - bridge-utils
-
+    - virt-manager
   user-data:
-    runcmd:
-      # Post-installatie acties
-      - apt update && apt upgrade -y
-      - systemctl enable --now docker
-      - groupadd libvirt
-      - usermod -aG docker,libvirt thomas
-      - flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-      - flatpak install -y flathub com.mattjakeman.ExtensionManager
-      - flatpak install -y com.google.Chrome
-      - gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
-      - gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
-      - gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true
-      - gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed false
-      - gsettings set org.gnome.shell.extensions.dash-to-dock favorite-apps "['google-chrome.desktop']"
-      - snap refresh
-  late-commands:
-    # Docker rootless mode configuratie
-    - curtin in-target --target=/target -- sh -c "sudo -u thomas dockerd-rootless-setuptool.sh install"
-    # Virt-manager wachtwoordvrij instellen
-    - curtin in-target --target=/target -- sh -c "echo 'auth sufficient pam_permit.so' > /etc/pam.d/libvirt-sasl"
-
-# Einde autoinstall.yaml
+    disable_root: true
+    late-commands:
+      # Voeg gebruiker toe aan noodzakelijke groepen
+      - curtin in-target -- usermod -aG docker,libvirt,qemu thomas
+      # Docker rootless mode installeren
+      - curtin in-target -- sudo -u thomas dockerd-rootless-setuptool.sh install
+      # Flatpak Flathub repository toevoegen
+      - curtin in-target -- flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      # Installatie van Flatpak apps
+      - curtin in-target -- flatpak install -y flathub com.mattjakeman.ExtensionManager
+      # Installeren van GNOME Shell Extensions
+      - curtin in-target -- sudo -u thomas flatpak run com.mattjakeman.ExtensionManager install 'blur-my-shell@aunetx'
+      - curtin in-target -- sudo -u thomas flatpak run com.mattjakeman.ExtensionManager install 'appindicatorsupport@rgcjonas.gmail.com'
+      - curtin in-target -- sudo -u thomas flatpak run com.mattjakeman.ExtensionManager install 'Forge@jmmaranan.com'
+      # Donkere modus inschakelen
+      - curtin in-target -- sudo -u thomas gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark'
+      # Dock instellingen aanpassen
+      - curtin in-target -- sudo -u thomas gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
+      - curtin in-target -- sudo -u thomas gsettings set org.gnome.shell.extensions.dash-to-dock autohide true
+      - curtin in-target -- sudo -u thomas gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed false
+      # Google Chrome installeren
+      - wget -O /target/tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+      - curtin in-target -- dpkg -i /tmp/google-chrome.deb || apt-get install -fy
+      # Google Chrome aan Dock toevoegen
+      - curtin in-target -- sudo -u thomas gsettings set org.gnome.shell favorite-apps "['google-chrome.desktop']"
+      # Docker Desktop installeren
+      - wget -O /target/tmp/docker-desktop.deb https://desktop.docker.com/linux/main/amd64/docker-desktop-<latest-version>-amd64.deb
+      - curtin in-target -- dpkg -i /tmp/docker-desktop.deb || apt-get install -fy
+      # Vereiste architecturen voor QEMU toevoegen
+      - curtin in-target -- dpkg --add-architecture i386
+      - curtin in-target -- apt-get update
+      - curtin in-target -- apt-get install -y qemu qemu-kvm libvirt-daemon libvirt-clients bridge-utils virt-manager
+      # Noodzakelijke groepen configureren voor virt-manager
+      - curtin in-target -- usermod -aG libvirt thomas
+      - curtin in-target -- usermod -aG kvm thomas
+      # Rechten instellen voor virt-manager zonder wachtwoord
+      - echo "thomas ALL=(ALL) NOPASSWD: /usr/bin/virt-manager" > /target/etc/sudoers.d/virt-manager
+  apt:
+    primary:
+      - arches: [default]
+        uri: "http://archive.ubuntu.com/ubuntu"
+  updates: yes
